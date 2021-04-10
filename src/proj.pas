@@ -3,7 +3,7 @@
 {For the latest proj visit https://proj.org/   }
 {* Author: Domingo Galmes <dgalmesp@gmail.com>  29-11-2020
 ******************************************************************************
-* Copyright (c) 2020, Domingo Galmés
+* Copyright (c) 2020,2021 Domingo Galmés
 *
 * Permission is hereby granted, free of charge, to any person obtaining a
 * copy of this software and associated documentation files (the "Software"),
@@ -149,15 +149,35 @@ unit proj;
 
 interface
 
-  uses
+uses
     math;
+
+//  {.$MACRO ON}
+//  //ONLY ONE.
+//  {.$DEFINE USE_VERSION:=70100}
+//  {$DEFINE USE_VERSION:=80100}
+  const
+   //only one
+   //USE_VERSION=70100;
+   USE_VERSION=80100;
+
 
     const
       HUGE_VAL=Infinity;
       { The version numbers should be updated with every release! * }
+      //#define PROJ_COMPUTE_VERSION(maj,min,patch) ((maj)*10000+(min)*100+(patch))
+   {$IF USE_VERSION=70100}
       PROJ_VERSION_MAJOR = 7;
       PROJ_VERSION_MINOR = 1;
       PROJ_VERSION_PATCH = 0;
+      PROJ_VERSION_NUMBER = 70100;
+   {$ELSE}
+     PROJ_VERSION_MAJOR = 8;
+     PROJ_VERSION_MINOR = 1;
+     PROJ_VERSION_PATCH = 0;
+     PROJ_VERSION_NUMBER = 80100;
+   {$ENDIF}
+//todo: CHANGE DLL NAME.
       //last precompiled dll available from: https://trac.osgeo.org/osgeo4w/
       {$IF Defined(MSWINDOWS)}
         External_Dll ='proj_6_3.dll';
@@ -390,11 +410,18 @@ interface
 
     PJ_LOG_FUNCTION = procedure (_para1:pointer; _para2:longint; _para3:PAnsiChar);cdecl;
   { The context type - properly namespaced synonym for projCtx  }
-    projCtx_t = record
-        {undefined structure}
-    end;
+  {$IF USE_VERSION >= 80000}
+  pj_ctx = record
+     {undefined structure}
+  end;
+  PJ_CONTEXT = pj_ctx;
+  {$ELSE}
+  projCtx_t = record
+     {undefined structure}
+  end;
+  PJ_CONTEXT = projCtx_t;
+  {$ENDIF}
 
-    PJ_CONTEXT = projCtx_t;
   { A P I  }
   {*
    * The objects returned by the functions defined in this section have minimal
@@ -409,6 +436,9 @@ interface
 
     function proj_context_create:PPJ_CONTEXT;cdecl;external External_Dll;
     function proj_context_destroy(ctx:PPJ_CONTEXT):PPJ_CONTEXT;cdecl;external External_Dll;
+    {$IF USE_VERSION >= 80000}
+    function proj_context_clone(ctx:PPJ_CONTEXT):PPJ_CONTEXT;cdecl;external External_DLL;
+    {$ENDIF}
 
   {* Callback to resolve a filename to a full path  }
   type
@@ -416,6 +446,10 @@ interface
     proj_file_finder = function (ctx:PPJ_CONTEXT; _para2:PAnsiChar; user_data:pointer):PAnsiChar;cdecl;
     procedure proj_context_set_file_finder(ctx:PPJ_CONTEXT;finder:proj_file_finder;user_data:Pointer);cdecl;external External_Dll;
     procedure proj_context_set_search_paths(ctx:PPJ_CONTEXT;count_paths:integer;paths:PPAnsiChar);cdecl;external External_Dll;
+    {$IF USE_VERSION >= 80000}
+    procedure proj_context_set_ca_bundle_path(ctx:PPJ_CONTEXT;path:PAnsiChar);cdecl;external External_DLL;
+    {$ENDIF}
+
     procedure proj_context_use_proj4_init_rules(ctx:PPJ_CONTEXT;enable:integer);cdecl;external External_Dll;
     function proj_context_get_use_proj4_init_rules(ctx:PPJ_CONTEXT;from_legacy_code_path:integer):integer;cdecl;external External_Dll;
 
@@ -585,13 +619,50 @@ function proj_xy_dist(a:PJ_COORD;b:PJ_COORD):double;cdecl;external External_Dll;
 function proj_xyz_dist(a:PJ_COORD;b:PJ_COORD):double;cdecl;external External_Dll;
   { Geodesic distance (in meter) + fwd and rev azimuth between two points on the ellipsoid  }
 function proj_geod(P:PPJ;a:PJ_COORD;b:PJ_COORD):PJ_COORD;cdecl;external External_Dll;
+
+{/* PROJ error codes */
+
+/** Error codes typically related to coordinate operation initialization
+ * Note: some of them can also be emitted during coordinate transformation,
+ * like PROJ_ERR_INVALID_OP_FILE_NOT_FOUND_OR_INVALID in case the resource loading
+ * is deferred until it is really needed.
+ */
+ }
+const
+
+PROJ_ERR_INVALID_OP=                           1024;                        //* other/unspecified error related to coordinate operation initialization */
+PROJ_ERR_INVALID_OP_WRONG_SYNTAX=              (PROJ_ERR_INVALID_OP+1);     //* invalid pipeline structure, missing +proj argument, etc */
+PROJ_ERR_INVALID_OP_MISSING_ARG=               (PROJ_ERR_INVALID_OP+2);     //* missing required operation parameter */
+PROJ_ERR_INVALID_OP_ILLEGAL_ARG_VALUE=         (PROJ_ERR_INVALID_OP+3);     //* one of the operation parameter has an illegal value */
+PROJ_ERR_INVALID_OP_MUTUALLY_EXCLUSIVE_ARGS=   (PROJ_ERR_INVALID_OP+4);     //* mutually exclusive arguments */
+PROJ_ERR_INVALID_OP_FILE_NOT_FOUND_OR_INVALID= (PROJ_ERR_INVALID_OP+5);     //* file not found (particular case of PROJ_ERR_INVALID_OP_ILLEGAL_ARG_VALUE) */
+
+//** Error codes related to transformation on a specific coordinate */
+PROJ_ERR_COORD_TRANSFM=                           2048;                           //* other error related to coordinate transformation */
+PROJ_ERR_COORD_TRANSFM_INVALID_COORD=             (PROJ_ERR_COORD_TRANSFM+1);     //* for e.g lat > 90deg */
+PROJ_ERR_COORD_TRANSFM_OUTSIDE_PROJECTION_DOMAIN= (PROJ_ERR_COORD_TRANSFM+2);     //* coordinate is outside of the projection domain. e.g approximate mercator with |longitude - lon_0| > 90deg, or iterative convergence method failed */
+PROJ_ERR_COORD_TRANSFM_NO_OPERATION=              (PROJ_ERR_COORD_TRANSFM+3);     //* no operation found, e.g if no match the required accuracy, or if ballpark transformations were asked to not be used and they would be only such candidate */
+PROJ_ERR_COORD_TRANSFM_OUTSIDE_GRID=              (PROJ_ERR_COORD_TRANSFM+4);     //* point to transform falls outside grid or subgrid */
+PROJ_ERR_COORD_TRANSFM_GRID_AT_NODATA=            (PROJ_ERR_COORD_TRANSFM+5);     //* point to transform falls in a grid cell that evaluates to nodata */
+
+//** Other type of errors */
+PROJ_ERR_OTHER=                                   4096;
+PROJ_ERR_OTHER_API_MISUSE=                        (PROJ_ERR_OTHER+1);             //* error related to a misuse of PROJ API */
+PROJ_ERR_OTHER_NO_INVERSE_OP=                     (PROJ_ERR_OTHER+2);             //* no inverse method available */
+PROJ_ERR_OTHER_NETWORK_ERROR=                     (PROJ_ERR_OTHER+3);             //* failure when accessing a network resource */
+
+
   { Set or read error level  }
 function proj_context_errno(ctx:PPJ_CONTEXT):integer;cdecl;external External_Dll;
 function proj_errno (P:PPJ):integer;cdecl;external External_Dll;
 function proj_errno_set(P:PPJ;err:integer):integer;cdecl;external External_Dll;
 function proj_errno_reset(P:PPJ):integer;cdecl;external External_Dll;
 function proj_errno_restore(P:PPJ;err:integer):integer;cdecl;external External_Dll;
-function proj_errno_string (err:integer):PAnsiChar;cdecl;external External_Dll;
+function proj_errno_string (err:integer):PAnsiChar;cdecl;external External_Dll; {$IF USE_VERSION>=80000}deprecated 'use proj_context_errno_string'; {$ENDIF}
+{$IF USE_VERSION >= 80000}
+function proj_context_errno_string (ctx:PPJ_CONTEXT;err:integer):PAnsiChar;cdecl;external External_Dll;
+{$ENDIF}
+
 function proj_log_level(ctx:PPJ_CONTEXT;log_level:PJ_LOG_LEVEL):PJ_LOG_LEVEL;cdecl;external External_Dll;
 procedure proj_log_func(ctx:PPJ_CONTEXT;app_data:Pointer;logf:PJ_LOG_FUNCTION);cdecl;external External_Dll;
 { Scaling and angular distortion factors  }
@@ -645,6 +716,9 @@ type
 
     PJ_CATEGORY = (PJ_CATEGORY_ELLIPSOID,PJ_CATEGORY_PRIME_MERIDIAN,
       PJ_CATEGORY_DATUM,PJ_CATEGORY_CRS,PJ_CATEGORY_COORDINATE_OPERATION
+      {$IF USE_VERSION >= 80000}
+      ,PJ_CATEGORY_DATUM_ENSEMBLE
+      {$ENDIF}
       );
   {* \brief Object type.  }
   {* Abstract type, not returned by proj_get_type()  }
@@ -663,7 +737,13 @@ type
       PJ_TYPE_ENGINEERING_CRS,PJ_TYPE_BOUND_CRS,
       PJ_TYPE_OTHER_CRS,PJ_TYPE_CONVERSION,
       PJ_TYPE_TRANSFORMATION,PJ_TYPE_CONCATENATED_OPERATION,
-      PJ_TYPE_OTHER_COORDINATE_OPERATION);
+      PJ_TYPE_OTHER_COORDINATE_OPERATION
+      {$IF USE_VERSION >= 80000}
+      ,PJ_TYPE_TEMPORAL_DATUM,
+      PJ_TYPE_ENGINEERING_DATUM,
+      PJ_TYPE_PARAMETRIC_DATUM
+      {$ENDIF}
+      );
   {* Comparison criterion.  }
   {* All properties are identical.  }
   {* The objects are equivalent for the purpose of coordinate
@@ -934,6 +1014,31 @@ function proj_get_units_from_database(auth_name:PAnsiChar; category:PAnsiChar;al
                                             out_result_count:PInteger):PPPROJ_UNIT_INFO;cdecl;external External_Dll;
 procedure proj_unit_list_destroy(list:PPPROJ_UNIT_INFO);cdecl;external External_Dll;
 
+
+//* ------------------------------------------------------------------------- */
+//*! @cond Doxygen_Suppress */
+{$IF USE_VERSION >= 80000}
+type
+PPJ_INSERT_SESSION = ^PJ_INSERT_SESSION;
+PJ_INSERT_SESSION = record
+    {undefined structure}
+end;
+
+function proj_insert_object_session_create(ctx:PPJ_CONTEXT):PPJ_INSERT_SESSION;cdecl;external External_Dll;
+procedure proj_insert_object_session_destroy(ctx:PPJ_CONTEXT;session:PPJ_INSERT_SESSION);cdecl;external External_Dll;
+function proj_get_insert_statements(ctx:PPJ_CONTEXT;session:PPJ_INSERT_SESSION;
+                                            object1:PPJ;
+                                            authority:PAnsiChar;
+                                            code:PAnsiChar;
+                                            numeric_codes:integer;
+                                            allowed_authorities:PPAnsiChar;
+                                            options:PPAnsiChar):PROJ_STRING_LIST;cdecl;external External_Dll;
+function proj_suggests_code_for(ctx:PPJ_CONTEXT;object1:PPJ;authority:PAnsiChar;numeric_code:integer;
+                                    options:PPAnsiChar):PAnsiChar;cdecl;external External_Dll;
+procedure proj_string_destroy(str:PAnsiChar);cdecl;external External_Dll;
+{$ENDIF}
+//* ------------------------------------------------------------------------- */
+//*! @cond Doxygen_Suppress */
   { -------------------------------------------------------------------------  }
 type
 PPJ_OPERATION_FACTORY_CONTEXT = ^PJ_OPERATION_FACTORY_CONTEXT;
@@ -981,6 +1086,15 @@ function proj_crs_get_geodetic_crs(ctx:PPJ_CONTEXT; crs:PPJ):PPJ;cdecl;external 
 function proj_crs_get_horizontal_datum(ctx:PPJ_CONTEXT; crs:PPJ):PPJ;cdecl;external External_Dll;
 function proj_crs_get_sub_crs(ctx:PPJ_CONTEXT; crs:PPJ; index:integer):PPJ;cdecl;external External_Dll;
 function proj_crs_get_datum(ctx:PPJ_CONTEXT; crs:PPJ):PPJ;cdecl;external External_Dll;
+{$IF USE_VERSION >= 80000}
+function proj_crs_is_derived(ctx:PPJ_CONTEXT; crs:PPJ):integer;cdecl;external External_Dll;
+function proj_crs_get_datum_ensemble(ctx:PPJ_CONTEXT; crs:PPJ):PPJ;cdecl;external External_Dll;
+function proj_crs_get_datum_forced(ctx:PPJ_CONTEXT; crs:PPJ):PPJ;cdecl;external External_Dll;
+function proj_datum_ensemble_get_member_count(ctx:PPJ_CONTEXT;datum_ensemble:PPJ):integer;cdecl;external External_Dll;
+function proj_datum_ensemble_get_accuracy(ctx:PPJ_CONTEXT;datum_ensemble:PPJ):double;cdecl;external External_Dll;
+function proj_datum_ensemble_get_member(ctx:PPJ_CONTEXT;datum_ensemble:PPJ;member_index:integer):PPJ;cdecl;external External_Dll;
+function proj_dynamic_datum_get_frame_reference_epoch(ctx:PPJ_CONTEXT;datum:PPJ):double;cdecl;external External_Dll;
+{$ENDIF}
 function proj_crs_get_coordinate_system(ctx:PPJ_CONTEXT; crs:PPJ):PPJ;cdecl;external External_Dll;
 function proj_cs_get_type(ctx:PPJ_CONTEXT; cs:PPJ):PJ_COORDINATE_SYSTEM_TYPE;cdecl;external External_Dll;
 function  proj_cs_get_axis_count(ctx:PPJ_CONTEXT; cs:PPJ):integer;cdecl;external External_Dll;
@@ -1044,6 +1158,9 @@ function  proj_concatoperation_get_step_count(ctx:PPJ_CONTEXT; concatoperation:P
 function proj_concatoperation_get_step(ctx:PPJ_CONTEXT; concatoperation:PPJ;i_step:integer):PPJ;cdecl;external External_Dll;
 function proj_get_pj_release:AnsiString;
 
+function PROJ_COMPUTE_VERSION(maj:integer;min:integer;patch:integer):integer;
+function PROJ_AT_LEAST_VERSION(maj:integer;min:integer;patch:integer):boolean;
+
 implementation
 
 var
@@ -1053,6 +1170,19 @@ var
 function proj_get_pj_release:AnsiString;
 begin
   result:=PChar(@pj_release[0]);
+end;
+
+//* Note: the following 3 defines have been introduced in PROJ 8.0.1 */
+//* Macro to compute a PROJ version number from its components */
+function PROJ_COMPUTE_VERSION(maj:integer;min:integer;patch:integer):integer;
+begin
+  Result := maj * 10000 + min * 100 + patch;
+end;
+
+//* Macro that returns true if the current PROJ version is at least the version specified by (maj,min,patch) */
+function PROJ_AT_LEAST_VERSION(maj:integer;min:integer;patch:integer):boolean;
+begin
+  Result := PROJ_VERSION_NUMBER >= PROJ_COMPUTE_VERSION(maj,min,patch);
 end;
 
 end.
